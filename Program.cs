@@ -7,6 +7,7 @@ using System.Drawing.Text;
 using System.Drawing.Imaging;
 using System.IO;
 using System.Media;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text.Json;
@@ -124,6 +125,18 @@ namespace VoidAutoClicker
         public int TrimWins { get; set; } = 0;
         public int TrimGoal { get; set; } = 10;
         public int TrimTotalWins { get; set; } = 0;
+        // updates
+        public bool CheckUpdates { get; set; } = true;
+        public string SkippedVersion { get; set; } = "";
+    }
+
+    static class App
+    {
+        public const string Version = "1.3.0";
+        public const string Owner = "Garfieldking45";
+        public const string Repo = "VoidAutoClicker";
+        public static string LatestApi { get { return "https://api.github.com/repos/" + Owner + "/" + Repo + "/releases/latest"; } }
+        public static string ReleasesPage { get { return "https://github.com/" + Owner + "/" + Repo + "/releases/latest"; } }
     }
 
     static class Theme
@@ -591,11 +604,42 @@ namespace VoidAutoClicker
             int fwd = (int)(pw * Math.Max(0, Math.Min(1, _progress)));
             if (fwd > 0) using (var lg = new LinearGradientBrush(new Rectangle(px, py, Math.Max(1, fwd), Sc(4)), Theme.Accent, Theme.AccentSoft, 0f)) using (var fp = Fx.Round(new Rectangle(px, py, Math.Max(Sc(4), fwd), Sc(4)), Sc(2))) g.FillPath(lg, fp);
             using (var f = Fx.F(9f)) TextRenderer.DrawText(g, _status, f, new Rectangle(0, Sc(262), W, Sc(14)), Theme.TextDim, TextFormatFlags.HorizontalCenter | TextFormatFlags.NoPadding);
-            using (var f = Fx.F(9f)) { TextRenderer.DrawText(g, "v1.3.0", f, new Point(Sc(16), H - Sc(24)), Theme.TextFaint, TextFormatFlags.NoPadding); TextRenderer.DrawText(g, "made by Ethan", f, new Rectangle(0, H - Sc(24), W - Sc(16), Sc(14)), Theme.TextFaint, TextFormatFlags.Right | TextFormatFlags.NoPadding); }
+            using (var f = Fx.F(9f)) { TextRenderer.DrawText(g, "v" + App.Version, f, new Point(Sc(16), H - Sc(24)), Theme.TextFaint, TextFormatFlags.NoPadding); TextRenderer.DrawText(g, "made by Ethan", f, new Rectangle(0, H - Sc(24), W - Sc(16), Sc(14)), Theme.TextFaint, TextFormatFlags.Right | TextFormatFlags.NoPadding); }
         }
     }
 
     // Small themed text-input dialog (for naming profiles).
+    // Shown when a newer release exists on GitHub.
+    class UpdateForm : Form
+    {
+        public bool Skip;
+        public UpdateForm(string current, string latest, string notes)
+        {
+            FormBorderStyle = FormBorderStyle.FixedDialog; ControlBox = false; ShowInTaskbar = false; StartPosition = FormStartPosition.CenterParent;
+            BackColor = Theme.Panel; ForeColor = Theme.Text; AutoScaleMode = AutoScaleMode.Dpi; AutoScaleDimensions = new SizeF(96f, 96f);
+            ClientSize = new Size(380, 224); Text = "Update available";
+
+            Controls.Add(new Label { Text = "Update available", AutoSize = false, Bounds = new Rectangle(20, 18, 340, 24), ForeColor = Theme.Text, Font = Fx.F(12f, FontStyle.Bold), BackColor = Color.Transparent });
+            Controls.Add(new Label { Text = "v" + current + "   \u2192   v" + latest, AutoSize = false, Bounds = new Rectangle(20, 44, 340, 20), ForeColor = Theme.AccentSoft, Font = Fx.F(10f, FontStyle.Bold), BackColor = Color.Transparent });
+
+            var box = new TextBox
+            {
+                Text = string.IsNullOrWhiteSpace(notes) ? "No release notes." : notes.Replace("\n", "\r\n"),
+                Bounds = new Rectangle(20, 72, 340, 88), Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical,
+                BackColor = Theme.Bg, ForeColor = Theme.TextDim, BorderStyle = BorderStyle.FixedSingle, Font = Fx.F(9f), TabStop = false
+            };
+            Controls.Add(box);
+
+            var dl = new Button { Text = "Download", Bounds = new Rectangle(20, 172, 110, 34), DialogResult = DialogResult.OK, FlatStyle = FlatStyle.Flat, BackColor = Theme.Accent, ForeColor = Color.White, Font = Fx.F(9.5f, FontStyle.Bold) };
+            var later = new Button { Text = "Later", Bounds = new Rectangle(140, 172, 100, 34), DialogResult = DialogResult.Cancel, FlatStyle = FlatStyle.Flat, BackColor = Theme.PanelHi, ForeColor = Theme.Text, Font = Fx.F(9.5f) };
+            var skip = new Button { Text = "Skip this version", Bounds = new Rectangle(250, 172, 110, 34), FlatStyle = FlatStyle.Flat, BackColor = Theme.PanelHi, ForeColor = Theme.TextDim, Font = Fx.F(8.5f) };
+            dl.FlatAppearance.BorderSize = 0; later.FlatAppearance.BorderSize = 0; skip.FlatAppearance.BorderSize = 0;
+            skip.Click += (s, e) => { Skip = true; DialogResult = DialogResult.Ignore; };
+            AcceptButton = dl; CancelButton = later;
+            Controls.AddRange(new Control[] { dl, later, skip });
+        }
+    }
+
     class PromptForm : Form
     {
         public string Value = "";
@@ -639,28 +683,6 @@ namespace VoidAutoClicker
                 using (var path = Fx.Round(fr, (Height - 3) / 2))
                 using (var b = new LinearGradientBrush(new Rectangle(0, 0, Math.Max(2, Width), Height), Fx.Darken(Theme.Accent, 0.75f), Theme.AccentSoft, LinearGradientMode.Horizontal))
                     g.FillPath(b, path);
-            }
-        }
-    }
-
-    // Grid of small squares showing wins vs daily goal.
-    class PipGrid : DpiControl
-    {
-        public int Filled, Total = 10;
-        protected override void OnPaint(PaintEventArgs e)
-        {
-            var g = e.Graphics; g.SmoothingMode = SmoothingMode.AntiAlias;
-            int box = Sc(15), gap = Sc(5), perRow = Math.Max(1, (Width + gap) / (box + gap));
-            for (int i = 0; i < Total; i++)
-            {
-                int cx = (i % perRow) * (box + gap), cy = (i / perRow) * (box + gap);
-                if (cy + box > Height) break;
-                var r = new Rectangle(cx, cy, box, box);
-                using (var path = Fx.Round(r, Sc(4)))
-                {
-                    using (var b = new SolidBrush(i < Filled ? Theme.Accent : Theme.Bg)) g.FillPath(b, path);
-                    using (var p = new Pen(i < Filled ? Theme.Accent : Theme.Border, S)) g.DrawPath(p, path);
-                }
             }
         }
     }
@@ -836,8 +858,9 @@ namespace VoidAutoClicker
         Label _fpsSuggest, _fpsValLbl; Toggle _autoTog; GButton _fpsApply, _fpsRestore, _fpsMinus, _fpsPlus;
         // trim tracker
         const int TrimMax = 396900;
-        XpBar _trimBar; PipGrid _trimPips;
-        Label _trimNow, _trimPct, _trimAvg, _trimEst, _trimWinNum, _trimWinLeft, _trimDone;
+        XpBar _trimBar, _trimWinBar;
+        Label _trimWinPct;
+        Label _trimNow, _trimPct, _trimAvg, _trimEst, _trimWinNum, _trimWinLeft;
         Label _heroWins, _heroXpLeft;
         TextBox _trimXpIn, _trimSetIn, _trimGoalIn;
 
@@ -867,8 +890,8 @@ namespace VoidAutoClicker
             _engine = new Thread(EngineLoop) { IsBackground = true, Priority = ThreadPriority.Highest };
             _engine.Start();
             _loading = false;
-            if (_set.ShowSplash) RunSplash();
-            else if (_set.ShowOverlay) SetOverlay(true);
+            if (_set.ShowSplash) RunSplash();     // splash calls CheckForUpdates when it finishes
+            else { if (_set.ShowOverlay) SetOverlay(true); CheckForUpdates(false); }
         }
 
         void RunSplash()
@@ -899,11 +922,106 @@ namespace VoidAutoClicker
                     if (_splash != null && !_splash.IsDisposed) { _splash.Close(); _splash.Dispose(); _splash = null; }
                     Activate();
                     if (_set.ShowOverlay) SetOverlay(true);
+                    CheckForUpdates(false);
                 }
             }
         }
 
         protected override void OnDpiChanged(DpiChangedEventArgs e) { base.OnDpiChanged(e); _loading = true; RecomputeScale(); Rebuild(); _loading = false; }
+
+        // ── UPDATE CHECK (GitHub Releases) ──
+        // Compares dotted numeric versions: returns >0 if a is newer than b.
+        static int CompareVersions(string a, string b)
+        {
+            Func<string, int[]> parse = v =>
+            {
+                v = (v ?? "").Trim();
+                if (v.StartsWith("v", StringComparison.OrdinalIgnoreCase)) v = v.Substring(1);
+                var parts = v.Split('.');
+                var nums = new int[3];
+                for (int i = 0; i < 3 && i < parts.Length; i++)
+                {
+                    string digits = "";
+                    foreach (char c in parts[i]) { if (char.IsDigit(c)) digits += c; else break; }
+                    int n; nums[i] = int.TryParse(digits, out n) ? n : 0;
+                }
+                return nums;
+            };
+            var x = parse(a); var y = parse(b);
+            for (int i = 0; i < 3; i++) { if (x[i] != y[i]) return x[i] - y[i]; }
+            return 0;
+        }
+
+        // Minimal extraction so we don't depend on the JSON shape beyond two fields.
+        static string JsonField(string json, string name)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(json))
+                {
+                    JsonElement el;
+                    if (doc.RootElement.TryGetProperty(name, out el) && el.ValueKind == JsonValueKind.String)
+                        return el.GetString();
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        void CheckForUpdates(bool manual)
+        {
+            if (!manual && !_set.CheckUpdates) return;
+            var t = new Thread(() =>
+            {
+                string tag = null, notes = null;
+                try
+                {
+                    using (var http = new HttpClient())
+                    {
+                        http.Timeout = TimeSpan.FromSeconds(8);
+                        // GitHub requires a User-Agent on API requests.
+                        http.DefaultRequestHeaders.Add("User-Agent", App.Repo);
+                        string json = http.GetStringAsync(App.LatestApi).GetAwaiter().GetResult();
+                        tag = JsonField(json, "tag_name");
+                        notes = JsonField(json, "body");
+                    }
+                }
+                catch { tag = null; }   // offline / rate-limited / no releases yet: stay quiet
+
+                if (IsDisposed || Disposing || !IsHandleCreated) return;
+                try
+                {
+                    BeginInvoke((Action)(() =>
+                    {
+                        if (string.IsNullOrEmpty(tag))
+                        {
+                            if (manual) MessageBox.Show(this, "Couldn't reach GitHub. Check your connection and try again.", "Check for updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+                        if (CompareVersions(tag, App.Version) <= 0)
+                        {
+                            if (manual) MessageBox.Show(this, "You're on the latest version (v" + App.Version + ").", "Check for updates", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            return;
+                        }
+                        if (!manual && string.Equals(tag.TrimStart('v', 'V'), (_set.SkippedVersion ?? "").TrimStart('v', 'V'), StringComparison.OrdinalIgnoreCase)) return;
+
+                        using (var f = new UpdateForm(App.Version, tag.TrimStart('v', 'V'), notes))
+                        {
+                            var r = f.ShowDialog(this);
+                            if (f.Skip) { _set.SkippedVersion = tag; SaveSettings(); }
+                            else if (r == DialogResult.OK) OpenUrl(App.ReleasesPage);
+                        }
+                    }));
+                }
+                catch { }
+            });
+            t.IsBackground = true; t.SetApartmentState(ApartmentState.STA); t.Start();
+        }
+
+        static void OpenUrl(string url)
+        {
+            try { Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }); } catch { }
+        }
 
         void RecomputeScale() { _s = (DeviceDpi / 96f) * (float)_uiFactor; }
 
@@ -1259,6 +1377,12 @@ namespace VoidAutoClicker
             _panicBtn = new GButton { Location = new Point(Sc(10), Sc(420)), Size = new Size(pw - Sc(20), Sc(34)), Text = VkPretty(_panicVk), Fill = Theme.Bg, Fg = Theme.Red, Outline = true, FontSize = 10f };
             _panicBtn.Click += (s, e) => BeginBind(1);
             p.Controls.Add(_panicBtn);
+
+            AddBehaviorRow(p, pw, 472, "CHECK FOR UPDATES", "Look for a new version on launch", _set.CheckUpdates, v => { _set.CheckUpdates = v; SaveSettings(); });
+            var chk = new GButton { Location = new Point(Sc(10), Sc(516)), Size = new Size(pw - Sc(20), Sc(30)), Text = "CHECK NOW", Fill = Theme.PanelHi, Fg = Theme.Text, Outline = true, FontSize = 9f };
+            chk.Click += (s, e) => { _set.SkippedVersion = ""; SaveSettings(); CheckForUpdates(true); };
+            p.Controls.Add(chk);
+            p.Controls.Add(new Label { AutoSize = false, Size = new Size(pw - Sc(20), Sc(16)), Location = new Point(Sc(10), Sc(552)), Text = "Version " + App.Version, Font = Fx.F(8f), ForeColor = Theme.TextFaint, BackColor = Color.Transparent, TextAlign = ContentAlignment.MiddleCenter });
         }
         void AddBehaviorRow(Panel p, int pw, int y, string title, string desc, bool on, Action<bool> onChange)
         {
@@ -1325,13 +1449,20 @@ namespace VoidAutoClicker
             // ── HERO: wins all time + xp left ──
             var hero = new SubCard { Hero = true, Location = new Point(Sc(10), Sc(y)), Size = new Size(cw, Sc(74)) };
             hero.Controls.Add(Cap("WINS ALL TIME", 12, 12));
-            _heroWins = Val("0", 12, 30, 108, 20f, Theme.Text); hero.Controls.Add(_heroWins);
+            _heroWins = Val("0", 12, 30, 88, 20f, Theme.Text); hero.Controls.Add(_heroWins);
+            var editWins = new GButton { Location = new Point(Sc(100), Sc(34)), Size = new Size(Sc(30), Sc(20)), Text = "SET", Fill = Theme.Bg, Fg = Theme.TextDim, Outline = true, FontSize = 7f };
+            editWins.Click += (s, e) =>
+            {
+                string r = AskName("Set all-time wins", _set.TrimTotalWins.ToString());
+                int v; if (r != null && int.TryParse(r.Trim(), out v) && v >= 0) { _set.TrimTotalWins = v; TrimCommit(); }
+            };
+            hero.Controls.Add(editWins);
             hero.Controls.Add(Cap("XP LEFT", 140, 12));
             _heroXpLeft = Val("396,900", 140, 30, 140, 20f, Theme.AccentSoft); hero.Controls.Add(_heroXpLeft);
             p.Controls.Add(hero); y += 84;
 
             // ── WINS TODAY ──
-            var wc = new SubCard { Location = new Point(Sc(10), Sc(y)), Size = new Size(cw, Sc(166)) };
+            var wc = new SubCard { Location = new Point(Sc(10), Sc(y)), Size = new Size(cw, Sc(156)) };
             wc.Controls.Add(Cap("WINS TODAY", 12, 12));
             wc.Controls.Add(Cap("GOAL", 178, 12));
             _trimGoalIn = TrimInput(214, 8, 46, ""); _trimGoalIn.Text = _set.TrimGoal.ToString();
@@ -1350,14 +1481,25 @@ namespace VoidAutoClicker
             wPlus.Click += (s, e) => { _set.TrimWins++; _set.TrimTotalWins++; TrimCommit(); };
             wc.Controls.Add(wPlus);
 
-            _trimPips = new PipGrid { Location = new Point(inx, Sc(82)), Size = new Size(cw - Sc(24), Sc(36)) };
-            wc.Controls.Add(_trimPips);
-            _trimDone = new Label { AutoSize = true, Location = new Point(inx, Sc(120)), Text = "GOAL HIT", Font = Fx.F(8f, FontStyle.Bold), ForeColor = Theme.AccentSoft, BackColor = Color.Transparent, Visible = false };
-            wc.Controls.Add(_trimDone);
-            wc.Controls.Add(Cap("LEFT TODAY", 12, 138));
-            _trimWinLeft = new Label { AutoSize = false, Size = new Size(Sc(70), Sc(18)), Location = new Point(cw - Sc(84), Sc(136)), Text = "10", Font = Fx.F(10.5f, FontStyle.Bold), ForeColor = Theme.Text, BackColor = Color.Transparent, TextAlign = ContentAlignment.MiddleRight };
+            _trimWinBar = new XpBar { Location = new Point(inx, Sc(90)), Size = new Size(cw - Sc(24), Sc(9)) };
+            wc.Controls.Add(_trimWinBar);
+            _trimWinPct = new Label { AutoSize = false, Size = new Size(cw - Sc(24), Sc(16)), Location = new Point(inx, Sc(104)), Text = "0 / 10  \u00b7  0%", Font = Fx.F(8f, FontStyle.Bold), ForeColor = Theme.TextDim, BackColor = Color.Transparent, TextAlign = ContentAlignment.MiddleCenter };
+            wc.Controls.Add(_trimWinPct);
+            wc.Controls.Add(Cap("LEFT TODAY", 12, 130));
+            var setToday = new GButton { Location = new Point(Sc(88), Sc(126)), Size = new Size(Sc(30), Sc(20)), Text = "SET", Fill = Theme.Bg, Fg = Theme.TextDim, Outline = true, FontSize = 7f };
+            setToday.Click += (s, e) =>
+            {
+                string r = AskName("Set wins today", _set.TrimWins.ToString());
+                int v; if (r != null && int.TryParse(r.Trim(), out v) && v >= 0)
+                {
+                    _set.TrimTotalWins = Math.Max(0, _set.TrimTotalWins + (v - _set.TrimWins));
+                    _set.TrimWins = v; TrimCommit();
+                }
+            };
+            wc.Controls.Add(setToday);
+            _trimWinLeft = new Label { AutoSize = false, Size = new Size(Sc(70), Sc(18)), Location = new Point(cw - Sc(84), Sc(128)), Text = "10", Font = Fx.F(10.5f, FontStyle.Bold), ForeColor = Theme.Text, BackColor = Color.Transparent, TextAlign = ContentAlignment.MiddleRight };
             wc.Controls.Add(_trimWinLeft);
-            p.Controls.Add(wc); y += 176;
+            p.Controls.Add(wc); y += 166;
 
             // ── ARMOR TRIM PROGRESS ──
             var tc = new SubCard { Location = new Point(Sc(10), Sc(y)), Size = new Size(cw, Sc(128)) };
@@ -1455,8 +1597,11 @@ namespace VoidAutoClicker
 
             _trimWinNum.Text = _set.TrimWins.ToString();
             _trimWinLeft.Text = Math.Max(0, _set.TrimGoal - _set.TrimWins).ToString();
-            _trimPips.Filled = _set.TrimWins; _trimPips.Total = Math.Max(_set.TrimGoal, _set.TrimWins); _trimPips.Invalidate();
-            _trimDone.Visible = _set.TrimWins >= _set.TrimGoal && _set.TrimGoal > 0;
+            int goal = Math.Max(1, _set.TrimGoal);
+            float wpct = (float)_set.TrimWins / goal;
+            _trimWinBar.Progress = Math.Min(1f, wpct);
+            _trimWinPct.Text = _set.TrimWins + " / " + _set.TrimGoal + "  \u00b7  " + Math.Round(wpct * 100f) + "%";
+            _trimWinPct.ForeColor = _set.TrimWins >= _set.TrimGoal ? Theme.AccentSoft : Theme.TextDim;
         }
 
 
@@ -1750,7 +1895,6 @@ namespace VoidAutoClicker
             if (_posLabel != null) _posLabel.ForeColor = Theme.AccentSoft;
             if (_trimPct != null) _trimPct.ForeColor = Theme.AccentSoft;
             if (_heroXpLeft != null) _heroXpLeft.ForeColor = Theme.AccentSoft;
-            if (_trimDone != null) _trimDone.ForeColor = Theme.AccentSoft;
             if (_fpsValLbl != null) _fpsValLbl.ForeColor = Theme.AccentSoft;
             foreach (var s in _swatches) { s.Selected = s.Color.ToArgb() == c.ToArgb(); s.Invalidate(); }
             _startFillCur = _armed ? Theme.Red : Theme.Accent;
