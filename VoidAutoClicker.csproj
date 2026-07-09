@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>VoidAutoClicker</AssemblyName>
+    <RootNamespace>VoidAutoClicker</RootNamespace>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>void.ico</ApplicationIcon>
+    <Version>1.1.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Embedded so the form + tray can load the icon at runtime as
+         "VoidAutoClicker.void.ico" without shipping a loose file. -->
+    <EmbeddedResource Include="void.ico" />
+  </ItemGroup>
+
+</Project>
